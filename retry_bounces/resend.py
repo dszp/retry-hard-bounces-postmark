@@ -37,14 +37,40 @@ def friendly_eastern(date_header: str) -> str | None:
         f"at {hour12}:{eastern.strftime('%M %p')} {eastern.strftime('%Z')}"
     )
 
-_BANNER_TEMPLATE = (
-    '<div style="background:#fff7d6;border:1px solid #e0c200;color:#594b00;'
-    'padding:10px 14px;margin:0 0 12px 0;font-family:Open Sans,Helvetica,Arial,'
-    'sans-serif;font-size:13px;line-height:18px;">'
-    "This voicemail notification was originally sent on {date} and is being "
-    "re-delivered after a mailbox delivery issue was resolved."
-    "</div>"
+# Default re-delivery notice. `{date}` is replaced with the friendly Eastern date.
+DEFAULT_NOTE = (
+    "This message was originally sent on {date} and is being re-delivered "
+    "after a mailbox delivery issue was resolved."
 )
+
+_BANNER_BG = "#fff7d6"
+_BANNER_BORDER = "#e0c200"
+_BANNER_FG = "#594b00"
+
+
+def _banner_html(text: str) -> str:
+    """A centered, ~600px, Outlook-safe table banner wrapping ``text``.
+
+    Uses a table with a ``bgcolor`` attribute and cell padding (which Word/Outlook
+    honor, unlike background/padding on a <div>), centered via an outer table.
+    """
+    safe = escape(text)
+    return (
+        '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
+        'border="0" style="border-collapse:collapse;"><tr>'
+        '<td align="center" style="padding:0;">'
+        '<table role="presentation" width="600" cellpadding="0" cellspacing="0" '
+        'border="0" style="width:600px;max-width:600px;margin:0 auto;border-collapse:collapse;">'
+        f'<tr><td bgcolor="{_BANNER_BG}" style="background:{_BANNER_BG};'
+        f'border:1px solid {_BANNER_BORDER};color:{_BANNER_FG};padding:10px 14px;'
+        'font-family:Helvetica,Arial,sans-serif;font-size:13px;line-height:18px;">'
+        f"{safe}</td></tr></table></td></tr></table>"
+    )
+
+
+def render_note(note_text: str | None, friendly_date: str) -> str:
+    """Fill the ``{date}`` placeholder in the note (default or custom)."""
+    return (note_text or DEFAULT_NOTE).replace("{date}", friendly_date)
 
 
 def fetch_source(client: PostmarkClient, candidate: Candidate) -> tuple[str | None, str | None]:
@@ -90,9 +116,9 @@ def fetch_source(client: PostmarkClient, candidate: Candidate) -> tuple[str | No
     return None, "no bounce dump or Content returned (no longer retained by Postmark)"
 
 
-def inject_date_note_html(html: str, date_str: str) -> str:
-    """Insert a 'originally sent' banner just inside <body>, else at the top."""
-    banner = _BANNER_TEMPLATE.format(date=escape(date_str))
+def inject_date_note_html(html: str, note: str) -> str:
+    """Insert the note banner just inside <body>, else at the top."""
+    banner = _banner_html(note)
     match = re.search(r"<body[^>]*>", html, re.IGNORECASE)
     if match:
         idx = match.end()
@@ -106,6 +132,7 @@ def build_payload(
     *,
     stream: str,
     add_date_note: bool = False,
+    note_text: str | None = None,
 ) -> dict:
     """Construct the Postmark /email request body for a faithful resend."""
     if not to_addrs:
@@ -119,10 +146,11 @@ def build_payload(
     headers: list[dict] = []
     if add_date_note and parsed.original_date:
         friendly = friendly_eastern(parsed.original_date) or parsed.original_date
+        note = render_note(note_text, friendly)
         if html:
-            html = inject_date_note_html(html, friendly)
+            html = inject_date_note_html(html, note)
         if text:
-            text = f"[Originally sent {friendly}]\n\n{text}"
+            text = f"{note}\n\n{text}"
         # Keep the precise original value in the header; show the friendly one to readers.
         headers.append({"Name": "X-Original-Date", "Value": parsed.original_date})
 

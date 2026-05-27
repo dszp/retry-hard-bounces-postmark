@@ -81,10 +81,32 @@ def test_date_note_injected_into_body_and_header():
     )
     # 18:39:19 +0000 on May 27 (EDT, UTC-4) → 2:39 PM EDT
     assert "originally sent on May 27, 2026 at 2:39 PM EDT" in payload["HtmlBody"]
+    assert "re-delivered after a mailbox delivery issue was resolved" in payload["HtmlBody"]
+    # Banner is inserted just inside <body>, as an Outlook-safe table.
     assert payload["HtmlBody"].index("<body") < payload["HtmlBody"].index("originally sent")
+    assert payload["HtmlBody"].index("<body") < payload["HtmlBody"].index("<table")
     # Header keeps the precise original RFC 2822 value.
     assert {"Name": "X-Original-Date", "Value": "Wed, 27 May 2026 18:39:19 +0000"} in payload["Headers"]
-    assert payload["TextBody"].startswith("[Originally sent May 27, 2026 at 2:39 PM EDT]")
+    assert payload["TextBody"].startswith("This message was originally sent on May 27, 2026 at 2:39 PM EDT")
+
+
+def test_custom_note_text_with_date_placeholder():
+    parsed = parse_raw_message(_sample_raw_with_attachment())
+    payload = resend.build_payload(
+        parsed, ["a@example.com"], stream="outbound", add_date_note=True,
+        note_text="Heads up — recorded {date}. Resending now.",
+    )
+    assert "Heads up — recorded May 27, 2026 at 2:39 PM EDT. Resending now." in payload["HtmlBody"]
+    assert payload["TextBody"].startswith("Heads up — recorded May 27, 2026 at 2:39 PM EDT. Resending now.")
+
+
+def test_render_note_default_and_custom():
+    assert resend.render_note(None, "May 1, 2026 at 9:00 AM EDT").startswith(
+        "This message was originally sent on May 1, 2026 at 9:00 AM EDT and is being re-delivered"
+    )
+    assert resend.render_note("sent {date}", "X") == "sent X"
+    # A custom note without {date} is used verbatim.
+    assert resend.render_note("no placeholder", "X") == "no placeholder"
 
 
 def test_friendly_eastern_converts_utc_to_eastern_dst_aware():
@@ -101,8 +123,9 @@ def test_friendly_eastern_invalid_returns_none():
 
 
 def test_inject_note_without_body_tag_prepends():
-    out = resend.inject_date_note_html("<p>hi</p>", "2026-05-01")
-    assert out.startswith("<div")
+    out = resend.inject_date_note_html("<p>hi</p>", "originally sent 2026-05-01")
+    assert out.startswith("<table")
+    assert "originally sent 2026-05-01" in out
     assert "<p>hi</p>" in out
 
 

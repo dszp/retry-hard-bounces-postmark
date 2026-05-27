@@ -4,4 +4,4 @@
 # (semver: PATCH for fixes/tweaks, MINOR for features, MAJOR for breaking changes),
 # and add a matching entry to the Changelog in README.md. Keep this in sync with
 # the `version` field in pyproject.toml.
-__version__ = "0.1.0"
+__version__ = "0.1.1"

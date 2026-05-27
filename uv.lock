@@ -206,7 +206,7 @@ wheels = [
 
 [[package]]
 name = "retry-hard-bounces-postmark"
-version = "0.1.0"
+version = "0.1.1"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },

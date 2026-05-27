@@ -53,7 +53,8 @@ ApiBaseOpt = typer.Option(None, "--api-base", help="Postmark API base URL.")
 DaysOpt = typer.Option(45, "--days", help="Retention window to search, in days.")
 DomainOpt = typer.Option(None, "--domain", help="Limit to recipients at this domain (e.g. example.com).")
 RecipientOpt = typer.Option(None, "--recipient", "-r", help="Target specific address(es); repeatable. Overrides domain scan.")
-DateNoteOpt = typer.Option(False, "--add-date-note", help="Inject a visible 'originally sent on <date>' note.")
+DateNoteOpt = typer.Option(False, "--add-date-note", help="Inject a visible 're-delivered' note with the original send date.")
+NoteTextOpt = typer.Option(None, "--note-text", help="Custom text for --add-date-note. Use {date} where the original date should appear. Default is a generic re-delivery notice.")
 TestRecipientOpt = typer.Option(None, "--test-recipient", help="Send a preview copy to this address instead of the real recipients.")
 DryRunOpt = typer.Option(False, "--dry-run", help="Show what would happen without deleting suppressions or sending.")
 YesOpt = typer.Option(False, "--yes", "-y", help="Skip confirmation prompts (still respects --dry-run).")
@@ -339,6 +340,7 @@ def find(
     recipient: Optional[list[str]] = RecipientOpt,
     days: int = DaysOpt,
     add_date_note: bool = DateNoteOpt,
+    note_text: Optional[str] = NoteTextOpt,
     test_recipient: Optional[str] = TestRecipientOpt,
     dry_run: bool = DryRunOpt,
     yes: bool = YesOpt,
@@ -396,6 +398,7 @@ def find(
         _process_resends(
             client, cfg, selected,
             add_date_note=add_date_note,
+            note_text=note_text,
             test_recipient=test_recipient,
             dry_run=dry_run,
             assume_yes=yes,
@@ -447,6 +450,7 @@ def export(
 def resend(
     from_file: Path = typer.Option(..., "--from-file", help="JSON/CSV file produced by `export` (optionally edited)."),
     add_date_note: bool = DateNoteOpt,
+    note_text: Optional[str] = NoteTextOpt,
     test_recipient: Optional[str] = TestRecipientOpt,
     dry_run: bool = DryRunOpt,
     yes: bool = YesOpt,
@@ -466,6 +470,7 @@ def resend(
         _process_resends(
             client, cfg, candidates,
             add_date_note=add_date_note,
+            note_text=note_text,
             test_recipient=test_recipient,
             dry_run=dry_run,
             assume_yes=yes,
@@ -520,6 +525,7 @@ def _process_resends(
     candidates: list[Candidate],
     *,
     add_date_note: bool,
+    note_text: str | None,
     test_recipient: str | None,
     dry_run: bool,
     assume_yes: bool,
@@ -575,7 +581,9 @@ def _process_resends(
 
         parsed = parse_raw_message(raw)
         try:
-            payload = build_payload(parsed, targets, stream=cfg.stream, add_date_note=add_date_note)
+            payload = build_payload(
+                parsed, targets, stream=cfg.stream, add_date_note=add_date_note, note_text=note_text
+            )
         except ValueError as exc:
             console.print(f"  [red]Cannot build message: {exc}[/red]")
             skipped += 1
