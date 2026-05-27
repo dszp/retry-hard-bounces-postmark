@@ -1,5 +1,7 @@
 # retry-hard-bounces-postmark
 
+**Version 0.1.0** · MIT licensed · check `uv run retry-bounces --version`
+
 Discover Postmark voicemail emails that were **blocked by hard-bounce suppressions**
 and **resend** them — faithfully, including the original HTML body and audio
 attachment — to only the recipient(s) who actually bounced.
@@ -152,3 +154,24 @@ Tests cover MIME parsing (incl. attachments), payload building, date-note
 injection, the discovery classifier, secret passthrough, and the audit log. The
 end-to-end Postmark paths require a live token and are exercised via `inspect`
 and `--dry-run`.
+
+## Versioning & Changelog
+
+The version lives in `retry_bounces/__init__.py` (`__version__`) and is mirrored
+in `pyproject.toml`; `uv run retry-bounces --version` prints it. Bump it on every
+change — PATCH for fixes/tweaks, MINOR for new features, MAJOR for breaking
+changes ([semver](https://semver.org/)) — and add an entry below.
+
+### 0.1.0
+- Initial release.
+- Discover bounced voicemails via the Postmark Bounces API; resend faithfully
+  (HTML + audio) to only the recipients who bounced.
+- Type-keyed content recovery (message dump vs. bounce dump/`Content`).
+- Commands: `inspect`, `bounces`, `inspect-bounce`, `find`, `export`, `resend`.
+- Safety: `--dry-run`, `--test-recipient`, skip-already-sent audit log
+  (`--resend-anyway`), `y/n/all/quit` confirmations, `--delay`, HTTP 429 retry.
+- DST-aware US Eastern date notes; 1Password `op://` secret resolution.
+
+## License
+
+[MIT](LICENSE) © 2026 [David Szpunar](https://david.szpunar.com)

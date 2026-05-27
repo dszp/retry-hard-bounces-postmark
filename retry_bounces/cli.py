@@ -14,6 +14,7 @@ from rich.console import Console
 from rich.prompt import Confirm, Prompt
 from rich.table import Table
 
+from . import __version__
 from .api import PostmarkClient, PostmarkError
 from .audit import previously_resent, record_resend
 from .config import Config, ConfigError
@@ -29,6 +30,22 @@ app = typer.Typer(
 )
 console = Console()
 err = Console(stderr=True)
+
+
+def _version_callback(value: bool) -> None:
+    if value:
+        console.print(f"retry-bounces {__version__}")
+        raise typer.Exit()
+
+
+@app.callback()
+def _main(
+    version: bool = typer.Option(
+        False, "--version", callback=_version_callback, is_eager=True,
+        help="Show the version and exit.",
+    ),
+) -> None:
+    """retry-bounces — resend Postmark voicemails blocked by hard-bounce suppressions."""
 
 # Shared options
 StreamOpt = typer.Option(None, "--stream", help="Message stream ID (default: env or 'outbound').")
