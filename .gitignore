@@ -1,0 +1,32 @@
+# Secrets — never commit
+.env
+.env.local
+
+# 1Password / local resolved secrets
+*.secret
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+build/
+dist/
+
+# uv: the lockfile IS committed (reproducible installs for this utility).
+
+# Local audit/output
+resent.jsonl
+candidates.json
+candidates.csv
+
+# Saved raw message dumps (contain recipient PII + voicemail audio)
+*.eml
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
