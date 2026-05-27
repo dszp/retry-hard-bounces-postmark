@@ -2,7 +2,7 @@
 
 **Version 0.1.1** · MIT licensed · check `uv run retry-bounces --version`
 
-Discover Postmark voicemail emails that were **blocked by hard-bounce suppressions**
+Discover [Postmark](https://www.postmarkapp.com) voicemail emails that were **blocked by hard-bounce suppressions**
 and **resend** them — faithfully, including the original HTML body and audio
 attachment — to only the recipient(s) who actually bounced.
 
