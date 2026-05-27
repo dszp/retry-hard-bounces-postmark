@@ -11,10 +11,11 @@ attachment — to only the recipient(s) who actually bounced.
 Voicemail notifications are sent from the PBX through Postmark. When a recipient
 hard-bounces, Postmark suppresses that address and then **blocks** every later
 voicemail to it (logged as an SMTP API error / inactive recipient). Postmark keeps
-the blocked messages' raw content for **45 days** but offers no built-in retry.
-This tool finds those messages, optionally reactivates the address, and resends.
+the blocked messages' raw content for **45 days** (varies depending on plan) but 
+offers no built-in retry. This tool finds those messages, optionally reactivates 
+the address, and resends.
 
-Because shared mailboxes send one voicemail to several people, the tool is careful
+Because some emails may have been sent to multiple recipients, the tool is careful
 to resend **only** to the bounced address(es) — never to recipients who already
 got the message.
 
@@ -172,8 +173,8 @@ changes ([semver](https://semver.org/)) — and add an entry below.
 
 ### 0.1.0
 - Initial release.
-- Discover bounced voicemails via the Postmark Bounces API; resend faithfully
-  (HTML + audio) to only the recipients who bounced.
+- Discover bounced emails, including attachments (for example, voicemail messages) 
+- via the Postmark Bounces API; resend faithfully to only the recipients who bounced.
 - Type-keyed content recovery (message dump vs. bounce dump/`Content`).
 - Commands: `inspect`, `bounces`, `inspect-bounce`, `find`, `export`, `resend`.
 - Safety: `--dry-run`, `--test-recipient`, skip-already-sent audit log
