@@ -16,7 +16,7 @@ from rich.table import Table
 
 from . import __version__
 from .api import PostmarkClient, PostmarkError
-from .audit import previously_resent, record_resend
+from .audit import DEFAULT_LOG, previously_resent, record_resend
 from .config import Config, ConfigError
 from .discovery import find_candidates
 from .mime import parse_raw_message
@@ -56,6 +56,9 @@ RecipientOpt = typer.Option(None, "--recipient", "-r", help="Target specific add
 DateNoteOpt = typer.Option(False, "--add-date-note", help="Inject a visible 're-delivered' note with the original send date.")
 NoteTextOpt = typer.Option(None, "--note-text", help="Custom text for --add-date-note. Use {date} where the original date should appear. Default is a generic re-delivery notice.")
 TestRecipientOpt = typer.Option(None, "--test-recipient", help="Send a preview copy to this address instead of the real recipients.")
+RedirectToOpt = typer.Option(None, "--redirect-to", help="Deliver to this address instead of the bounced recipient(s) — for a typo'd/undeliverable original address. Unlike --test-recipient this is a real send and IS audit-logged.")
+IncludeTypeOpt = typer.Option(None, "--include-type", help="Also resend this normally-excluded bounce type (e.g. Transient); repeatable.")
+AuditLogOpt = typer.Option(DEFAULT_LOG, "--audit-log", help="Path to the resend audit log (default: ./resent.jsonl). Use a per-customer path to keep logs separate.")
 DryRunOpt = typer.Option(False, "--dry-run", help="Show what would happen without deleting suppressions or sending.")
 YesOpt = typer.Option(False, "--yes", "-y", help="Skip confirmation prompts (still respects --dry-run).")
 ResendAnywayOpt = typer.Option(False, "--resend-anyway", help="Resend even if already in the audit log (default skips already-sent recipients).")
@@ -99,7 +102,11 @@ def inspect(
     cfg = _load_config(stream, api_base)
     with _client(cfg) as client:
         if recipient and not message_id:
-            _inspect_list(client, recipient, days)
+            try:
+                _inspect_list(client, recipient, days)
+            except PostmarkError as exc:
+                err.print(f"[red]{exc}[/red]")
+                raise typer.Exit(code=1)
             return
         if not message_id:
             err.print("[red]Provide a MessageID, or use --recipient to list a recipient's messages.[/red]")
@@ -313,14 +320,19 @@ def inspect_bounce(
 # --------------------------------------------------------------------------- #
 # discovery helpers
 # --------------------------------------------------------------------------- #
-def _discover(client: PostmarkClient, domain, recipients, days) -> list[Candidate]:
-    return find_candidates(
-        client,
-        domain=domain,
-        recipients=list(recipients) if recipients else None,
-        days=days,
-        progress=lambda text: err.print(f"[dim]{text}[/dim]"),
-    )
+def _discover(client: PostmarkClient, domain, recipients, days, include_type=None) -> list[Candidate]:
+    try:
+        return find_candidates(
+            client,
+            domain=domain,
+            recipients=list(recipients) if recipients else None,
+            days=days,
+            extra_types=list(include_type) if include_type else None,
+            progress=lambda text: err.print(f"[dim]{text}[/dim]"),
+        )
+    except ValueError as exc:
+        err.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1)
 
 
 def _candidate_label(c: Candidate) -> str:
@@ -342,6 +354,9 @@ def find(
     add_date_note: bool = DateNoteOpt,
     note_text: Optional[str] = NoteTextOpt,
     test_recipient: Optional[str] = TestRecipientOpt,
+    redirect_to: Optional[str] = RedirectToOpt,
+    include_type: Optional[list[str]] = IncludeTypeOpt,
+    audit_log: Path = AuditLogOpt,
     dry_run: bool = DryRunOpt,
     yes: bool = YesOpt,
     resend_anyway: bool = ResendAnywayOpt,
@@ -356,7 +371,7 @@ def find(
     cfg = _load_config(stream, api_base)
     with _client(cfg) as client:
         try:
-            candidates = _discover(client, domain, recipient, days)
+            candidates = _discover(client, domain, recipient, days, include_type)
         except PostmarkError as exc:
             err.print(f"[red]{exc}[/red]")
             raise typer.Exit(code=1)
@@ -400,6 +415,8 @@ def find(
             add_date_note=add_date_note,
             note_text=note_text,
             test_recipient=test_recipient,
+            redirect_to=redirect_to,
+            audit_log=audit_log,
             dry_run=dry_run,
             assume_yes=yes,
             resend_anyway=resend_anyway,
@@ -416,6 +433,7 @@ def export(
     domain: Optional[str] = DomainOpt,
     recipient: Optional[list[str]] = RecipientOpt,
     days: int = DaysOpt,
+    include_type: Optional[list[str]] = IncludeTypeOpt,
     stream: Optional[str] = StreamOpt,
     api_base: Optional[str] = ApiBaseOpt,
 ):
@@ -423,7 +441,7 @@ def export(
     cfg = _load_config(stream, api_base)
     with _client(cfg) as client:
         try:
-            candidates = _discover(client, domain, recipient, days)
+            candidates = _discover(client, domain, recipient, days, include_type)
         except PostmarkError as exc:
             err.print(f"[red]{exc}[/red]")
             raise typer.Exit(code=1)
@@ -452,6 +470,8 @@ def resend(
     add_date_note: bool = DateNoteOpt,
     note_text: Optional[str] = NoteTextOpt,
     test_recipient: Optional[str] = TestRecipientOpt,
+    redirect_to: Optional[str] = RedirectToOpt,
+    audit_log: Path = AuditLogOpt,
     dry_run: bool = DryRunOpt,
     yes: bool = YesOpt,
     resend_anyway: bool = ResendAnywayOpt,
@@ -472,6 +492,8 @@ def resend(
             add_date_note=add_date_note,
             note_text=note_text,
             test_recipient=test_recipient,
+            redirect_to=redirect_to,
+            audit_log=audit_log,
             dry_run=dry_run,
             assume_yes=yes,
             resend_anyway=resend_anyway,
@@ -529,9 +551,15 @@ def _process_resends(
     test_recipient: str | None,
     dry_run: bool,
     assume_yes: bool,
+    redirect_to: str | None = None,
+    audit_log: Path = DEFAULT_LOG,
     resend_anyway: bool = False,
     delay: float = 0.0,
 ):
+    if test_recipient and redirect_to:
+        err.print("[red]--test-recipient and --redirect-to are mutually exclusive.[/red]")
+        raise typer.Exit(code=1)
+
     confirmer = _BatchConfirm(assume_yes=assume_yes)
     sent = 0
     skipped = 0
@@ -546,7 +574,7 @@ def _process_resends(
         else:
             pending = list(c.bounced_recipients)
             if not resend_anyway:
-                already = [r for r in pending if previously_resent(c.message_id, r)]
+                already = [r for r in pending if previously_resent(c.message_id, r, log_path=audit_log)]
                 if already:
                     console.print(f"  [dim]already resent, skipping: {', '.join(already)}[/dim]")
                     pending = [r for r in pending if r not in already]
@@ -558,9 +586,21 @@ def _process_resends(
             def confirm(addr: str, reason: str) -> bool:
                 return confirmer.ask(f"  Remove {addr} from suppression list ({reason}) so it can receive the resend?")
 
-            targets = reactivate_recipients(
-                client, pending, confirm=confirm, echo=console.print, dry_run=dry_run
-            )
+            if redirect_to:
+                # The original address is undeliverable by design (typo), so it is
+                # deliberately left on the suppression list; only the corrected
+                # address needs to be sendable.
+                console.print(
+                    f"  [cyan]REDIRECT[/cyan] — delivering to {redirect_to} "
+                    f"instead of {', '.join(pending)}; original left suppressed."
+                )
+                targets = reactivate_recipients(
+                    client, [redirect_to], confirm=confirm, echo=console.print, dry_run=dry_run
+                )
+            else:
+                targets = reactivate_recipients(
+                    client, pending, confirm=confirm, echo=console.print, dry_run=dry_run
+                )
             if confirmer.quit:
                 console.print("Quit — stopping.")
                 break
@@ -618,11 +658,15 @@ def _process_resends(
         console.print(f"  [green]✓ Sent[/green] (Postmark MessageID {pm_id})")
         sent += 1
         if not test_recipient:
+            # De-dup is keyed on the ORIGINAL bounced address, so a redirected
+            # resend still blocks a second attempt at the same message.
             record_resend(
                 message_id=c.message_id,
-                recipients=targets,
+                recipients=pending if redirect_to else targets,
                 postmark_message_id=pm_id,
                 test_recipient=None,
+                redirected_to=redirect_to,
+                log_path=audit_log,
             )
 
     console.rule()

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import json
 from email.message import EmailMessage
 from pathlib import Path
 
@@ -303,3 +304,49 @@ def test_audit_ignores_test_sends(tmp_path: Path):
         test_recipient="me@test.com", log_path=log,
     )
     assert audit.previously_resent("m1", "me@test.com", log_path=log) is False
+
+
+# -- opt-in bounce types ----------------------------------------------------- #
+def test_transient_excluded_by_default_but_opt_in_able():
+    client = _BounceDiscoveryClient([
+        _bounce("m1", "typo@example.com", "Transient", 1),
+        _bounce("m2", "bob@example.com", "HardBounce", 2),
+    ])
+    default = discovery.find_candidates(client, domain="example.com")
+    assert [c.message_id for c in default] == ["m2"]
+
+    opted_in = discovery.find_candidates(client, domain="example.com", extra_types=["Transient"])
+    by_id = {c.message_id: c for c in opted_in}
+    assert set(by_id) == {"m1", "m2"}
+    assert by_id["m1"].bounce_type == "Transient"
+
+
+def test_spam_complaint_can_never_be_opted_in():
+    with pytest.raises(ValueError, match="SpamComplaint"):
+        discovery.resolve_types(["SpamComplaint"])
+
+
+def test_fetch_source_transient_uses_message_dump_not_the_dsn():
+    # A Transient bounce was accepted and stored as an outbound message, so its
+    # bounce dump is the remote DSN — using it would resend a delivery report.
+    client = _ContentClient(message_dumps={"m1": "RAW"}, forbid_bounce=True)
+    cand = Candidate(
+        message_id="m1", subject="s", sent_at="", bounced_recipients=["typo@example.com"],
+        bounce_type="Transient", bounce_ids=[1],
+    )
+    raw, detail = resend.fetch_source(client, cand)
+    assert raw == "RAW"
+    assert detail is None
+
+
+# -- redirected resends ------------------------------------------------------ #
+def test_audit_redirect_dedupes_on_the_original_address(tmp_path: Path):
+    log = tmp_path / "resent.jsonl"
+    audit.record_resend(
+        message_id="m1", recipients=["typo@bad.example"], postmark_message_id="pm1",
+        test_recipient=None, redirected_to="good@ok.example", log_path=log,
+    )
+    # A rerun must skip the message even though delivery went elsewhere.
+    assert audit.previously_resent("m1", "typo@bad.example", log_path=log) is True
+    entry = json.loads(log.read_text(encoding="utf-8").splitlines()[0])
+    assert entry["redirected_to"] == "good@ok.example"

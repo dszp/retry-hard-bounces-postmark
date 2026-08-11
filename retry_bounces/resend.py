@@ -73,6 +73,12 @@ def render_note(note_text: str | None, friendly_date: str) -> str:
     return (note_text or DEFAULT_NOTE).replace("{date}", friendly_date)
 
 
+# Bounce types where Postmark accepted the send and stored it as an outbound
+# message, so the *message* dump holds the voicemail and the *bounce* dump holds
+# only the remote DSN. Using the bounce dump for these resends a delivery report.
+MESSAGE_DUMP_TYPES = {"HardBounce", "Transient"}
+
+
 def fetch_source(client: PostmarkClient, candidate: Candidate) -> tuple[str | None, str | None]:
     """Fetch the raw MIME of the original voicemail.
 
@@ -82,14 +88,14 @@ def fetch_source(client: PostmarkClient, candidate: Candidate) -> tuple[str | No
     content that is genuinely absent (e.g. a bounce dump aged out at 30 days).
 
     The source is keyed on bounce type:
-      * HardBounce           → the outbound message dump (the bounce dump would be
+      * HardBounce/Transient → the outbound message dump (the bounce dump would be
                                the remote DSN, not the voicemail). If empty, give up.
       * SMTPApiError/Blocked → the bounce dump, falling back to the bounce record's
                                ``Content`` field (the message was never stored as an
                                outbound message). Each recipient's bounce ID is tried
                                in order, since one may have aged out while another has not.
     """
-    if candidate.bounce_type == "HardBounce":
+    if candidate.bounce_type in MESSAGE_DUMP_TYPES:
         try:
             raw = client.message_dump(candidate.message_id)
         except PostmarkError as exc:

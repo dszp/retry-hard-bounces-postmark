@@ -96,6 +96,9 @@ uv run retry-bounces resend --from-file candidates.json --add-date-note
 | `--recipient/-r` | Target specific address(es); repeatable. Overrides the domain scan. |
 | `--days` | Retention window to search (default 45). |
 | `--test-recipient` | Send a preview copy here instead of the real recipients. Skips suppression removal; not logged as a real resend. |
+| `--redirect-to` | Deliver to a corrected address instead of the bounced one — for a **typo'd or otherwise undeliverable original address**. Unlike `--test-recipient` this is a real send and **is** audit-logged; the log de-duplicates on the *original* address, so a rerun won't send twice. The typo'd address is deliberately left suppressed. Mutually exclusive with `--test-recipient`. |
+| `--include-type` | Also resend a normally-excluded bounce type (repeatable). Only `Transient` is useful: a permanent fault the remote reports as temporary — e.g. an `NXDOMAIN` recipient domain that retries until `QUEUE.Expired` — never gets delivered. `SpamComplaint` is refused outright. |
+| `--audit-log PATH` | Path to the resend audit log (default `./resent.jsonl`). Give each customer its own path (or run from its own directory) so logs don't mix. |
 | `--add-date-note` | Inject a visible re-delivery banner with the original send date (DST-aware US Eastern, e.g. "May 22, 2026 at 1:28 PM EDT") + an `X-Original-Date` header with the precise original value. The banner is a centered, Outlook-safe table. |
 | `--note-text` | Custom banner wording for `--add-date-note`. Use `{date}` where the original date should appear (e.g. `"Recorded {date}; re-sending."`). |
 | `--delay SECONDS` | Pause between sends to avoid rate limiting (default 0.5; `0` disables). The client also auto-retries on HTTP 429. |
@@ -163,6 +166,21 @@ The version lives in `retry_bounces/__init__.py` (`__version__`) and is mirrored
 in `pyproject.toml`; `uv run retry-bounces --version` prints it. Bump it on every
 change — PATCH for fixes/tweaks, MINOR for new features, MAJOR for breaking
 changes ([semver](https://semver.org/)) — and add an entry below.
+
+### 0.2.0
+- New **`--redirect-to`**: deliver a bounced message to a corrected address when
+  the original is undeliverable by design (e.g. a typo'd recipient domain). It is
+  a real, audit-logged send that de-duplicates on the *original* address.
+- New **`--include-type`**: opt a normally-excluded bounce type into a resend.
+  `Transient` is the intended use — a permanent fault the remote reports as
+  temporary (`NXDOMAIN` → retries → `QUEUE.Expired`) is never delivered and
+  Postmark will not retry it again. `SpamComplaint` is refused outright.
+- `fetch_source` now treats **`Transient` like `HardBounce`**: the send was accepted
+  and stored as an outbound message, so its *bounce* dump is the remote DSN, not
+  the voicemail.
+- New **`--audit-log PATH`** so each customer can keep a separate `resent.jsonl`.
+- `inspect --recipient` now reports a Postmark API error cleanly instead of
+  raising a traceback.
 
 ### 0.1.1
 - Re-delivery note is now a centered, ~600px, **Outlook-safe table banner**

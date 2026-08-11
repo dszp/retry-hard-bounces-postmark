@@ -1,7 +1,7 @@
 [project]
 name = "retry-hard-bounces-postmark"
 # Keep in sync with retry_bounces.__version__ and the README Changelog.
-version = "0.1.1"
+version = "0.2.0"
 description = "Discover and resend Postmark voicemail emails that were blocked by hard-bounce suppressions"
 readme = "README.md"
 requires-python = ">=3.11"

@@ -18,8 +18,8 @@ dist/
 
 # uv: the lockfile IS committed (reproducible installs for this utility).
 
-# Local audit/output
-resent.jsonl
+# Local audit/output (any --audit-log path, e.g. acme-resent.jsonl)
+*resent.jsonl
 candidates.json
 candidates.csv
 
